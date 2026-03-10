@@ -7,11 +7,15 @@ from pyproj import Transformer
 from shapely.geometry import Polygon
 import json
 from folium.plugins import MousePosition, Fullscreen
+import os
 
 # --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Sistem GIS Polygon DMS - PUO", layout="wide")
+st.set_page_config(page_title="Sistem GIS PUO", layout="wide")
 
-# Inisialisasi Password & Status Login dalam Session State
+# Nama fail imej logo anda
+LOGO_FILE = "politeknik-ungku-umar-seeklogo-removebg-preview.png.png"
+
+# Inisialisasi Password & Status Login
 if 'password_db' not in st.session_state:
     st.session_state['password_db'] = "1234"
 if 'logged_in' not in st.session_state:
@@ -66,14 +70,16 @@ def convert_to_geojson(df):
 
 # --- 3. HALAMAN LOGIN ---
 def login_page():
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        try:
-            st.image("politeknik-ungku-umar-seeklogo-removebg-preview.png.png", use_container_width=True)
-        except:
-            st.warning("Fail logo tidak dijumpai. Sila pastikan nama fail betul.")
-        
-        st.title("🔐 Login Sistem GIS PUO")
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        # Papar gambar logo di login
+        if os.path.exists(LOGO_FILE):
+            st.image(LOGO_FILE, use_container_width=True)
+        else:
+            st.error(f"Fail imej '{LOGO_FILE}' tidak dijumpai dalam folder.")
+            
+        st.markdown("<h2 style='text-align: center;'>Sistem GIS PUO</h2>", unsafe_allow_html=True)
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
         if st.button("Masuk", use_container_width=True):
@@ -85,7 +91,7 @@ def login_page():
 
 # --- 4. HALAMAN TUKAR PASSWORD ---
 def change_password_page():
-    st.subheader("🔑 Tukar Password Admin")
+    st.title("🔑 Tukar Password Admin")
     with st.container(border=True):
         old_p = st.text_input("Password Semasa", type="password")
         new_p = st.text_input("Password Baru", type="password")
@@ -100,25 +106,27 @@ def change_password_page():
                 st.warning("Password baru mestilah sekurang-kurangnya 4 aksara!")
             else:
                 st.session_state['password_db'] = new_p
-                st.success("✅ Password berjaya ditukar! Sila gunakan password baru untuk sesi hadapan.")
+                st.success("✅ Password berjaya ditukar!")
 
 # --- 5. APLIKASI UTAMA (PETA) ---
 def main_app():
-    # --- HEADER DENGAN LOGO DI ATAS PETA ---
-    col_logo, col_title = st.columns([1, 5])
-    with col_logo:
-        try:
-            st.image("politeknik-ungku-umar-seeklogo-removebg-preview.png.png", width=120)
-        except:
-            st.write("LOGO PUO")
+    # --- HEADER DENGAN GAMBAR LOGO ---
+    col_logo, col_title = st.columns([1, 4])
     
+    with col_logo:
+        # Papar gambar logo di atas peta
+        if os.path.exists(LOGO_FILE):
+            st.image(LOGO_FILE, width=180)
+        else:
+            st.warning("Imej logo tiada.")
+
     with col_title:
         st.markdown("<h1 style='margin-bottom:0;'>Interactive Web GIS (DMS)</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='margin-top:0; color:grey;'>Jabatan Kejuruteraan Awam, Politeknik Ungku Omar</p>", unsafe_allow_html=True)
+        st.markdown("<h4 style='margin-top:0; color: #555;'>Jabatan Kejuruteraan Awam, Politeknik Ungku Omar</h4>", unsafe_allow_html=True)
     
     st.divider()
 
-    # Sidebar Navigasi & Tetapan
+    # Sidebar Navigasi
     st.sidebar.title("🚀 Menu Utama")
     choice = st.sidebar.selectbox("Navigasi", ["Peta GIS", "Tukar Password"])
     
@@ -146,13 +154,12 @@ def main_app():
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
         if all(col in df.columns for col in ['E', 'N']):
-            # Transform Cassini ke WGS84
             transformer = Transformer.from_crs("EPSG:4390", "EPSG:4326", always_xy=True)
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
             geojson_str = convert_to_geojson(df)
-            st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="data.geojson", mime="application/json")
+            st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="puo_data.geojson", mime="application/json")
             
             poly_geom = Polygon(list(zip(df['E'], df['N'])))
             center = [df['lat'].mean(), df['lon'].mean()]
@@ -161,8 +168,7 @@ def main_app():
             with m_col2:
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
-                st.success("✅ Data Diproses")
-                st.info("💡 **Tips:** Hover titik merah untuk maklumat.")
+                st.success("✅ Data Berjaya Diproses")
 
             with m_col1:
                 m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
@@ -174,13 +180,11 @@ def main_app():
                 else:
                     folium.TileLayer('openstreetmap', name='OpenStreetMap', overlay=False).add_to(m)
 
-                # Plot Polygon
                 folium.Polygon(
                     locations=[[row['lat'], row['lon']] for i, row in df.iterrows()],
                     color="yellow", weight=3, fill=True, fill_opacity=0.2
                 ).add_to(m)
 
-                # Label Luas
                 if show_area:
                     c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
                     folium.Marker(location=[c_lat, c_lon], icon=folium.DivIcon(
@@ -188,7 +192,6 @@ def main_app():
                         icon_anchor=(75, 5)
                     )).add_to(m)
 
-                # Bearing & Jarak
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
@@ -200,16 +203,8 @@ def main_app():
                             </div>'''
                         )).add_to(m)
 
-                # Stesen Markers
                 for i, row in df.iterrows():
-                    info_box = f"""
-                    <div style="font-family: sans-serif; size: 12px; width: 180px;">
-                        <h4 style="margin:0; color:red;">Stesen {row['STN']}</h4>
-                        <hr>
-                        <b>E:</b> {row['E']:.3f}<br><b>N:</b> {row['N']:.3f}<br>
-                        <b>Lat:</b> {row['lat']:.7f}<br><b>Lon:</b> {row['lon']:.7f}
-                    </div>
-                    """
+                    info_box = f"Stesen {row['STN']}<br>Lat: {row['lat']:.7f}<br>Lon: {row['lon']:.7f}"
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']],
                         radius=10, color="white", weight=2, fill=True, fill_color="red", fill_opacity=0.9,
@@ -225,10 +220,7 @@ def main_app():
 
                 Fullscreen().add_to(m)
                 MousePosition(position='bottomleft', separator=' | ', prefix="WGS84: ").add_to(m)
-                st_folium(m, width=1100, height=650, key="main_map")
-
-            with st.expander("Lihat Jadual Data"):
-                st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
+                st_folium(m, width=1100, height=600, key="main_map")
 
 # --- 6. JALANKAN PROGRAM ---
 if __name__ == "__main__":
