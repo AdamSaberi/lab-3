@@ -13,7 +13,7 @@ import os
 st.set_page_config(page_title="Sistem GIS PUO", layout="wide")
 
 # Nama fail imej logo yang anda muat naik
-LOGO_IMAGE = "politeknik-ungku-umar-seeklogo-removebg-preview.png.png"
+LOGO_IMAGE = "politeknik-ungku-umar-seeklogo-removebg-preview.png"
 
 # Inisialisasi Password & Status Login
 if 'password_db' not in st.session_state:
@@ -237,3 +237,4 @@ if __name__ == "__main__":
         login_page()
     else:
         main_app()
+
