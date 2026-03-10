@@ -12,8 +12,8 @@ import os
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Sistem GIS PUO", layout="wide")
 
-# Nama fail imej logo yang anda muat naik
-LOGO_IMAGE = "politeknik-ungku-umar-seeklogo-removebg-preview.png"
+# Nama fail imej logo
+LOGO_IMAGE = "politeknik-ungku-umar-seeklogo-removebg-preview.png.png"
 
 # Inisialisasi Password & Status Login
 if 'password_db' not in st.session_state:
@@ -53,24 +53,54 @@ def calculate_bearing_dist(df):
 
 def convert_to_geojson(df):
     features = []
+    
+    # 1. Tambah Polygon Utama (Kawasan)
     poly_coords = [[row['lon'], row['lat']] for i, row in df.iterrows()]
     poly_coords.append(poly_coords[0])
     features.append({
         "type": "Feature",
-        "properties": {"name": "Lot Polygon"},
+        "properties": {"Name": "Lot Polygon", "Type": "Area"},
         "geometry": {"type": "Polygon", "coordinates": [poly_coords]}
     })
+    
+    # 2. Tambah Titik Stesen (Points)
     for i, row in df.iterrows():
         features.append({
             "type": "Feature",
-            "properties": {"STN": row['STN'], "E": row['E'], "N": row['N']},
+            "properties": {
+                "STN": row['STN'], 
+                "Eing": row['E'], 
+                "Ning": row['N']
+            },
             "geometry": {"type": "Point", "coordinates": [row['lon'], row['lat']]}
         })
+
+    # 3. Tambah Garisan (LineString) Bersama Data Bearing & Jarak (Untuk QGIS)
+    dims = calculate_bearing_dist(df)
+    for i in range(len(df)):
+        p1 = df.iloc[i]
+        p2 = df.iloc[(i + 1) % len(df)]
+        d = dims[i]
+        
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "Dari": str(p1['STN']),
+                "Ke": str(p2['STN']),
+                "Bearing": d['bearing_dms'],
+                "Jarak_m": round(d['dist'], 3),
+                "Label": f"{d['bearing_dms']} | {round(d['dist'], 3)}m"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]
+            }
+        })
+        
     return json.dumps({"type": "FeatureCollection", "features": features}, indent=4)
 
 # --- 3. HALAMAN LOGIN ---
 def login_page():
-    # Susun atur tengah untuk login
     _, col2, _ = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -108,24 +138,23 @@ def change_password_page():
                 st.warning("Password mestilah sekurang-kurangnya 4 aksara!")
             else:
                 st.session_state['password_db'] = new_p
-                st.success("✅ Berjaya! Sila gunakan password baru untuk sesi akan datang.")
+                st.success("✅ Berjaya ditukar!")
 
 # --- 5. APLIKASI UTAMA ---
 def main_app():
-    # --- HEADER DENGAN GAMBAR LOGO PUO ---
+    # --- HEADER ---
     col_logo, col_title = st.columns([1, 4])
-    
     with col_logo:
         if os.path.exists(LOGO_IMAGE):
-            st.image(LOGO_IMAGE, width=200) # Paparkan logo yang anda muat naik
+            st.image(LOGO_IMAGE, width=180)
     
     with col_title:
         st.markdown("<h1 style='margin-bottom:0;'>Interactive Web GIS (DMS)</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='margin-top:0; color:grey; font-size:1.2em;'>Politeknik Ungku Omar | Jabatan Kejuruteraan Awam</p>", unsafe_allow_html=True)
+        st.markdown("<p style='margin-top:0; color:grey;'>Jabatan Kejuruteraan Awam, Politeknik Ungku Omar</p>", unsafe_allow_html=True)
     
     st.divider()
 
-    # Sidebar Navigasi
+    # Sidebar
     st.sidebar.title("🚀 Navigasi")
     choice = st.sidebar.selectbox("Menu", ["Peta GIS", "Tukar Password"])
     
@@ -137,17 +166,14 @@ def main_app():
         change_password_page()
         return
 
-    # --- Tetapan Peta di Sidebar ---
     st.sidebar.divider()
-    st.sidebar.header("⚙️ Konfigurasi")
     map_mode = st.sidebar.radio("Jenis Peta:", ["Satelit (Google)", "Peta Jalan (OSM)"])
-    
     show_stn = st.sidebar.checkbox("Label Stesen", value=True)
     show_dim = st.sidebar.checkbox("Bearing & Jarak", value=True)
     show_area = st.sidebar.checkbox("Paparan Luas", value=True)
     
     st.sidebar.divider()
-    uploaded_file = st.sidebar.file_uploader("Muat naik fail CSV (Format: STN, E, N)", type='csv')
+    uploaded_file = st.sidebar.file_uploader("Muat naik fail CSV (STN, E, N)", type='csv')
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
@@ -157,9 +183,15 @@ def main_app():
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
-            # GeoJSON Export
+            # --- PENYEDIAAN DATA UNTUK MUAT TURUN ---
             geojson_str = convert_to_geojson(df)
-            st.sidebar.download_button("📥 Muat Turun GeoJSON", data=geojson_str, file_name="gis_puo.geojson", mime="application/json")
+            st.sidebar.download_button(
+                label="📥 Download GeoJSON (Untuk QGIS)", 
+                data=geojson_str, 
+                file_name="GIS_PUO_Data.geojson", 
+                mime="application/json",
+                help="Fail ini mengandungi Polygon, Points, dan LineString berserta data Bearing/Jarak."
+            )
             
             poly_geom = Polygon(list(zip(df['E'], df['N'])))
             center = [df['lat'].mean(), df['lon'].mean()]
@@ -168,68 +200,36 @@ def main_app():
             with m_col2:
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
-                st.info("💡 Klik pada titik merah untuk butiran koordinat.")
 
             with m_col1:
-                # Inisialisasi Peta
                 m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
-
                 if map_mode == "Satelit (Google)":
-                    folium.TileLayer(
-                        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-                        attr='Google', name='Google Satellite', max_zoom=22, overlay=False
-                    ).add_to(m)
+                    folium.TileLayer(tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr='Google', name='Satellite', max_zoom=22).add_to(m)
                 else:
-                    folium.TileLayer('openstreetmap', name='OSM', overlay=False).add_to(m)
+                    folium.TileLayer('openstreetmap').add_to(m)
 
                 # Lukis Polygon
-                folium.Polygon(
-                    locations=[[row['lat'], row['lon']] for i, row in df.iterrows()],
-                    color="yellow", weight=3, fill=True, fill_opacity=0.2
-                ).add_to(m)
+                folium.Polygon(locations=[[row['lat'], row['lon']] for i, row in df.iterrows()], color="yellow", weight=3, fill=True, fill_opacity=0.2).add_to(m)
 
-                # Label Luas
-                if show_area:
-                    c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
-                    folium.Marker(location=[c_lat, c_lon], icon=folium.DivIcon(
-                        html=f'<div style="font-size:10pt; color:yellow; font-weight:bold; width:150px; text-shadow:2px 2px #000; text-align:center;">LUAS: {poly_geom.area:.2f} m²</div>',
-                        icon_anchor=(75, 5)
-                    )).add_to(m)
-
-                # Bearing & Jarak
+                # Bearing & Jarak (Visual di Peta)
+                dims = calculate_bearing_dist(df)
                 if show_dim:
-                    dims = calculate_bearing_dist(df)
                     for d in dims:
                         folium.Marker(location=[d['mid_lat'], d['mid_lon']], icon=folium.DivIcon(
-                            icon_size=(150,40), icon_anchor=(75,20),
-                            html=f'''<div style="transform: rotate({d["rotation"]}deg); text-align:center;">
-                                <div style="font-size:9pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:2px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
-                                <div style="font-size:8pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:2px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
-                            </div>'''
+                            html=f'<div style="transform: rotate({d["rotation"]}deg); text-align:center; font-size:8pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px #000;">{d["bearing_dms"]}<br>{d["dist"]:.2f}m</div>'
                         )).add_to(m)
 
                 # Marker Stesen
                 for i, row in df.iterrows():
-                    info = f"Stesen {row['STN']}<br>E: {row['E']:.3f}<br>N: {row['N']:.3f}"
-                    folium.CircleMarker(
-                        location=[row['lat'], row['lon']],
-                        radius=8, color="white", weight=2, fill=True, fill_color="red", fill_opacity=1,
-                        tooltip=row['STN'],
-                        popup=folium.Popup(info, max_width=200)
-                    ).add_to(m)
-
+                    folium.CircleMarker(location=[row['lat'], row['lon']], radius=6, color="red", fill=True).add_to(m)
                     if show_stn:
-                        folium.Marker(
-                            location=[row['lat'], row['lon']],
-                            icon=folium.DivIcon(html=f'<div style="font-size:12pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:15px; width:50px;">{row["STN"]}</div>')
-                        ).add_to(m)
+                        folium.Marker(location=[row['lat'], row['lon']], icon=folium.DivIcon(
+                            html=f'<div style="font-size:11pt; color:white; text-shadow:1px 1px #000; font-weight:bold; margin-left:12px;">{row["STN"]}</div>'
+                        )).add_to(m)
 
                 Fullscreen().add_to(m)
-                MousePosition(position='bottomleft', separator=' | ', prefix="WGS84: ").add_to(m)
-                st_folium(m, width=1100, height=600, key="map_puo")
-
-            with st.expander("Jadual Data Koordinat"):
-                st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
+                MousePosition().add_to(m)
+                st_folium(m, width=1100, height=600, key="main_map")
 
 # --- 6. RUN ---
 if __name__ == "__main__":
@@ -237,5 +237,3 @@ if __name__ == "__main__":
         login_page()
     else:
         main_app()
-
-
