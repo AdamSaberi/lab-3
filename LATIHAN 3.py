@@ -9,16 +9,13 @@ import json
 from folium.plugins import MousePosition, Fullscreen
 
 # --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Sistem GIS PUO", layout="wide")
+st.set_page_config(page_title="Sistem GIS Polygon DMS - PUO", layout="wide")
 
-# Inisialisasi Password dalam Session State
+# Inisialisasi Password & Status Login dalam Session State
 if 'password_db' not in st.session_state:
     st.session_state['password_db'] = "1234"
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
-
-# URL Logo Politeknik Ungku Omar
-LOGO_PUO = "https://www.puo.edu.my/wp-content/uploads/2021/08/logo_puo.png"
 
 # --- 2. FUNGSI PEMBANTU ---
 def decimal_to_dms(deg):
@@ -71,7 +68,11 @@ def convert_to_geojson(df):
 def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image(LOGO_PUO, width=300)
+        try:
+            st.image("politeknik-ungku-umar-seeklogo-removebg-preview.png.png", use_container_width=True)
+        except:
+            st.warning("Fail logo tidak dijumpai. Sila pastikan nama fail betul.")
+        
         st.title("🔐 Login Sistem GIS PUO")
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
@@ -84,42 +85,52 @@ def login_page():
 
 # --- 4. HALAMAN TUKAR PASSWORD ---
 def change_password_page():
-    st.title("🔑 Tukar Password Admin")
-    old_p = st.text_input("Password Semasa", type="password")
-    new_p = st.text_input("Password Baru", type="password")
-    confirm_p = st.text_input("Sahkan Password Baru", type="password")
-    
-    if st.button("Kemaskini Password"):
-        if old_p != st.session_state['password_db']:
-            st.error("Password semasa tidak tepat!")
-        elif new_p != confirm_p:
-            st.error("Sahkan password baru tidak sepadan!")
-        elif len(new_p) < 4:
-            st.warning("Password baru mestilah sekurang-kurangnya 4 aksara!")
-        else:
-            st.session_state['password_db'] = new_p
-            st.success("✅ Password berjaya ditukar!")
-
-# --- 5. APLIKASI UTAMA ---
-def main_app():
-    # --- SIDEBAR DENGAN LOGO ---
-    with st.sidebar:
-        st.image(LOGO_PUO, use_container_width=True)
-        st.markdown("<h3 style='text-align: center;'>Jabatan Kejuruteraan Awam</h3>", unsafe_allow_html=True)
-        st.divider()
-        menu = st.selectbox("Pilih Menu:", ["Peta Interaktif", "Tukar Password"])
+    st.subheader("🔑 Tukar Password Admin")
+    with st.container(border=True):
+        old_p = st.text_input("Password Semasa", type="password")
+        new_p = st.text_input("Password Baru", type="password")
+        confirm_p = st.text_input("Sahkan Password Baru", type="password")
         
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state['logged_in'] = False
-            st.rerun()
+        if st.button("Kemaskini Password"):
+            if old_p != st.session_state['password_db']:
+                st.error("Password semasa tidak tepat!")
+            elif new_p != confirm_p:
+                st.error("Sahkan password baru tidak sepadan!")
+            elif len(new_p) < 4:
+                st.warning("Password baru mestilah sekurang-kurangnya 4 aksara!")
+            else:
+                st.session_state['password_db'] = new_p
+                st.success("✅ Password berjaya ditukar! Sila gunakan password baru untuk sesi hadapan.")
 
-    if menu == "Tukar Password":
+# --- 5. APLIKASI UTAMA (PETA) ---
+def main_app():
+    # --- HEADER DENGAN LOGO DI ATAS PETA ---
+    col_logo, col_title = st.columns([1, 5])
+    with col_logo:
+        try:
+            st.image("politeknik-ungku-umar-seeklogo-removebg-preview.png.png", width=120)
+        except:
+            st.write("LOGO PUO")
+    
+    with col_title:
+        st.markdown("<h1 style='margin-bottom:0;'>Interactive Web GIS (DMS)</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='margin-top:0; color:grey;'>Jabatan Kejuruteraan Awam, Politeknik Ungku Omar</p>", unsafe_allow_html=True)
+    
+    st.divider()
+
+    # Sidebar Navigasi & Tetapan
+    st.sidebar.title("🚀 Menu Utama")
+    choice = st.sidebar.selectbox("Navigasi", ["Peta GIS", "Tukar Password"])
+    
+    if st.sidebar.button("🚪 Logout", use_container_width=True):
+        st.session_state['logged_in'] = False
+        st.rerun()
+
+    if choice == "Tukar Password":
         change_password_page()
         return
 
-    # --- HALAMAN PETA ---
-    st.title("🗺️ Sistem GIS Interaktif Politeknik Ungku Omar")
-    
+    # Bahagian Peta GIS
     st.sidebar.divider()
     st.sidebar.header("⚙️ Tetapan Peta")
     map_mode = st.sidebar.radio("Jenis Peta:", ["Satelit (Google)", "Peta Jalan (OSM)"])
@@ -129,30 +140,32 @@ def main_app():
     show_dim = st.sidebar.checkbox("Paparkan Bearing/Jarak", value=True)
     show_area = st.sidebar.checkbox("Paparkan Luas", value=True)
     
+    st.sidebar.divider()
     uploaded_file = st.sidebar.file_uploader("Muat naik CSV (STN, E, N)", type='csv')
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
         if all(col in df.columns for col in ['E', 'N']):
+            # Transform Cassini ke WGS84
             transformer = Transformer.from_crs("EPSG:4390", "EPSG:4326", always_xy=True)
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
             geojson_str = convert_to_geojson(df)
-            st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="puo_data.geojson", mime="application/json")
+            st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="data.geojson", mime="application/json")
             
             poly_geom = Polygon(list(zip(df['E'], df['N'])))
             center = [df['lat'].mean(), df['lon'].mean()]
 
-            m_col1, m_col2 = st.columns([4, 1])
+            m_col1, m_col2 = st.columns([3, 1])
             with m_col2:
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
-                st.success("Data Berjaya Diproses")
+                st.success("✅ Data Diproses")
+                st.info("💡 **Tips:** Hover titik merah untuk maklumat.")
 
             with m_col1:
                 m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
-
                 if map_mode == "Satelit (Google)":
                     folium.TileLayer(
                         tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
@@ -161,7 +174,7 @@ def main_app():
                 else:
                     folium.TileLayer('openstreetmap', name='OpenStreetMap', overlay=False).add_to(m)
 
-                # Lukis Polygon
+                # Plot Polygon
                 folium.Polygon(
                     locations=[[row['lat'], row['lon']] for i, row in df.iterrows()],
                     color="yellow", weight=3, fill=True, fill_opacity=0.2
@@ -175,7 +188,7 @@ def main_app():
                         icon_anchor=(75, 5)
                     )).add_to(m)
 
-                # Label Dimensi & Marker Stesen
+                # Bearing & Jarak
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
@@ -187,24 +200,34 @@ def main_app():
                             </div>'''
                         )).add_to(m)
 
+                # Stesen Markers
                 for i, row in df.iterrows():
-                    info_box = f"<b>Stesen {row['STN']}</b><br>E: {row['E']:.3f}<br>N: {row['N']:.3f}"
+                    info_box = f"""
+                    <div style="font-family: sans-serif; size: 12px; width: 180px;">
+                        <h4 style="margin:0; color:red;">Stesen {row['STN']}</h4>
+                        <hr>
+                        <b>E:</b> {row['E']:.3f}<br><b>N:</b> {row['N']:.3f}<br>
+                        <b>Lat:</b> {row['lat']:.7f}<br><b>Lon:</b> {row['lon']:.7f}
+                    </div>
+                    """
                     folium.CircleMarker(
-                        location=[row['lat'], row['lon']], radius=8, color="white", weight=2, fill=True, fill_color="red", fill_opacity=1,
-                        tooltip=folium.Tooltip(info_box), popup=folium.Popup(info_box)
+                        location=[row['lat'], row['lon']],
+                        radius=10, color="white", weight=2, fill=True, fill_color="red", fill_opacity=0.9,
+                        tooltip=folium.Tooltip(info_box, sticky=True),
+                        popup=folium.Popup(info_box, max_width=300)
                     ).add_to(m)
 
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
-                            icon=folium.DivIcon(html=f'<div style="font-size:11pt; color:white; text-shadow:1px 1px #000; font-weight:bold; margin-left:12px; width:50px;">{row["STN"]}</div>')
+                            icon=folium.DivIcon(html=f'<div style="font-size:12pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:15px; width:100px;">{row["STN"]}</div>')
                         ).add_to(m)
 
                 Fullscreen().add_to(m)
-                MousePosition(position='bottomleft', separator=' | ', prefix="Coordinates: ").add_to(m)
-                st_folium(m, width=1100, height=600, key="main_map")
+                MousePosition(position='bottomleft', separator=' | ', prefix="WGS84: ").add_to(m)
+                st_folium(m, width=1100, height=650, key="main_map")
 
-            with st.expander("Jadual Koordinat"):
+            with st.expander("Lihat Jadual Data"):
                 st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
 
 # --- 6. JALANKAN PROGRAM ---
