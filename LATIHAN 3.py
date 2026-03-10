@@ -190,4 +190,38 @@ def main_app():
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
-                            icon=folium.
+                            icon=folium.DivIcon(
+                                html=f'''<div style="font-size:{font_size_stn}pt; color:white; text-shadow:2px 2px #000; font-weight:bold; width:60px;">{row["STN"]}</div>'''
+                            )
+                        ).add_to(m)
+
+                if show_dim:
+                    dims = calculate_bearing_dist(df)
+                    for d in dims:
+                        folium.Marker(
+                            location=[d['mid_lat'], d['mid_lon']],
+                            icon=folium.DivIcon(
+                                icon_size=(150,40), icon_anchor=(75,20),
+                                html=f'''
+                                <div style="transform: rotate({d["rotation"]}deg); text-align:center; pointer-events:none;">
+                                    <div style="font-size:{font_size_dim}pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 4px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div>
+                                    <div style="font-size:{font_size_dim-1}pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 4px; border-radius:3px;">{d["dist"]:.2f}m</div>
+                                </div>'''
+                            )
+                        ).add_to(m)
+
+                # Render Peta
+                folium_static(m, width=1000, height=600)
+
+            # Jadual Data di bawah
+            with st.expander("Lihat Data Koordinat"):
+                st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
+        else:
+            st.error("Format fail CSV salah! Pastikan ada kolum 'STN', 'E', dan 'N'.")
+
+# --- 5. EXECUTION ---
+if __name__ == "__main__":
+    if not st.session_state['logged_in']:
+        login_page()
+    else:
+        main_app()
