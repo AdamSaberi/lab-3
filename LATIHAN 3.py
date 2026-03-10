@@ -94,11 +94,12 @@ def main_app():
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
         if all(col in df.columns for col in ['E', 'N']):
+            # Transform Cassini ke WGS84
             transformer = Transformer.from_crs("EPSG:4390", "EPSG:4326", always_xy=True)
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
-            # Button Download GeoJSON
+            # GeoJSON Export
             geojson_str = convert_to_geojson(df)
             st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="data.geojson", mime="application/json")
             
@@ -110,7 +111,7 @@ def main_app():
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
                 st.success("✅ Fail dimuat naik.")
-                st.info("💡 **Klik pada titik merah** untuk info koordinat stesen.")
+                st.info("💡 **Gerakkan Mouse** ke titik merah untuk info koordinat.")
 
             with m_col1:
                 # Setup Map
@@ -124,13 +125,13 @@ def main_app():
                 else:
                     folium.TileLayer('openstreetmap', name='OpenStreetMap', overlay=False).add_to(m)
 
-                # 1. Polygon
+                # 1. Lukis Polygon
                 folium.Polygon(
                     locations=[[row['lat'], row['lon']] for i, row in df.iterrows()],
                     color="yellow", weight=3, fill=True, fill_opacity=0.2
                 ).add_to(m)
 
-                # 2. Luas Label
+                # 2. Label Luas (Centroid)
                 if show_area:
                     c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
                     folium.Marker(location=[c_lat, c_lon], icon=folium.DivIcon(
@@ -150,47 +151,52 @@ def main_app():
                             </div>'''
                         )).add_to(m)
 
-                # 4. Marker Stesen (DILUKIS LAST SUPAYA PALING ATAS)
+                # 4. Marker Stesen (HOVER & CLICK INFO)
                 for i, row in df.iterrows():
-                    # Content Popup
-                    popup_content = f"""
-                    <div style="font-family: Arial; width: 170px;">
-                        <b style="color:red; font-size:14px;">Stesen: {row['STN']}</b><hr style="margin:5px 0;">
-                        <b>E:</b> {row['E']:.3f}<br>
-                        <b>N:</b> {row['N']:.3f}<br>
-                        <b>Lat:</b> {row['lat']:.7f}<br>
-                        <b>Lon:</b> {row['lon']:.7f}
+                    # Content untuk Info Box
+                    info_html = f"""
+                    <div style="font-family: Arial; font-size: 12px; padding: 5px; width: 180px; border: 1px solid red;">
+                        <b style="color:red; font-size:14px;">Stesen: {row['STN']}</b><br>
+                        <hr style="margin:5px 0;">
+                        <b>E (Cassini):</b> {row['E']:.3f}<br>
+                        <b>N (Cassini):</b> {row['N']:.3f}<br>
+                        <b>Lat (WGS84):</b> {row['lat']:.7f}<br>
+                        <b>Lon (WGS84):</b> {row['lon']:.7f}
                     </div>
                     """
-                    # CircleMarker - Ini yang kita nak klik
+                    
+                    # Titik Merah Interaktif
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']],
-                        radius=8,
+                        radius=9, # Besarkan sikit supaya senang hover
                         color="red",
                         fill=True,
                         fill_color="red",
-                        fill_opacity=1.0,
-                        tooltip=f"Stesen {row['STN']}",
-                        popup=folium.Popup(popup_content, max_width=300)
+                        fill_opacity=0.8,
+                        # HOVER INFO (Tooltip)
+                        tooltip=folium.Tooltip(info_html, sticky=True),
+                        # CLICK INFO (Popup)
+                        popup=folium.Popup(info_html, max_width=300)
                     ).add_to(m)
 
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
                             icon=folium.DivIcon(
-                                html=f'<div style="font-size:11pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:10px;">{row["STN"]}</div>'
+                                html=f'<div style="font-size:11pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:14px; width:50px;">{row["STN"]}</div>'
                             )
                         ).add_to(m)
 
                 Fullscreen().add_to(m)
                 MousePosition().add_to(m)
                 
-                # Render dengan st_folium
+                # Render Peta
                 st_folium(m, width=1000, height=600, key=f"peta_{map_mode}")
 
-            with st.expander("Jadual Data Koordinat"):
+            with st.expander("Jadual Data Koordinat Lengkap"):
                 st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
 
+# --- 5. RUN APP ---
 if __name__ == "__main__":
     if not st.session_state['logged_in']: login_page()
     else: main_app()
