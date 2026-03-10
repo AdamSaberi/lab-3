@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import st_folium  # TUKAR DARI folium_static KE st_folium
+from streamlit_folium import st_folium
 import numpy as np
 from pyproj import Transformer
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point, mapping
+import json
 from folium.plugins import MousePosition, Fullscreen
 
 # --- 1. KONFIGURASI HALAMAN ---
@@ -40,6 +41,47 @@ def calculate_bearing_dist(df):
         })
     return results
 
+# FUNGSI BARU: CONVERT TO GEOJSON
+def convert_to_geojson(df):
+    features = []
+    # 1. Tambah Polygon Feature
+    poly_coords = [[row['lon'], row['lat']] for i, row in df.iterrows()]
+    poly_coords.append(poly_coords[0]) # Tutup polygon
+    
+    poly_feature = {
+        "type": "Feature",
+        "properties": {"name": "Lot Polygon", "type": "Boundary"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [poly_coords]
+        }
+    }
+    features.append(poly_feature)
+    
+    # 2. Tambah Point Features (Stesen)
+    for i, row in df.iterrows():
+        point_feature = {
+            "type": "Feature",
+            "properties": {
+                "STN": row['STN'],
+                "E_Cassini": row['E'],
+                "N_Cassini": row['N'],
+                "Lat_WGS84": row['lat'],
+                "Lon_WGS84": row['lon']
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [row['lon'], row['lat']]
+            }
+        }
+        features.append(point_feature)
+        
+    geojson_data = {
+        "type": "FeatureCollection",
+        "features": features
+    }
+    return json.dumps(geojson_data, indent=4)
+
 # --- 3. LOGIN ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
@@ -66,13 +108,12 @@ def main_app():
     st.sidebar.header("⚙️ Tetapan")
     map_mode = st.sidebar.radio("Pilih Paparan Peta:", ["Satelit (Google)", "Peta Jalan (OSM)"])
     
+    st.sidebar.divider()
     show_stn = st.sidebar.checkbox("Label Stesen", value=True)
     show_dim = st.sidebar.checkbox("Bearing/Jarak", value=True)
     show_area = st.sidebar.checkbox("Paparkan Luas", value=True)
     
-    font_size_stn = st.sidebar.slider("Saiz Teks Stesen", 8, 20, 11)
-    font_size_dim = st.sidebar.slider("Saiz Teks Dimensi", 6, 16, 9)
-    
+    st.sidebar.divider()
     uploaded_file = st.sidebar.file_uploader("Upload CSV (STN, E, N)", type='csv')
 
     if uploaded_file:
@@ -83,6 +124,15 @@ def main_app():
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
+            # GeoJSON Export Button di Sidebar
+            geojson_str = convert_to_geojson(df)
+            st.sidebar.download_button(
+                label="📥 Download GeoJSON",
+                data=geojson_str,
+                file_name="data_gis.geojson",
+                mime="application/json"
+            )
+            
             poly_geom = Polygon(list(zip(df['E'], df['N'])))
             center = [df['lat'].mean(), df['lon'].mean()]
 
@@ -90,10 +140,9 @@ def main_app():
             with m_col2:
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
-                st.info("💡 Klik pada titik merah (stesen) untuk info koordinat.")
+                st.info("💡 Klik titik merah untuk koordinat stesen.")
 
             with m_col1:
-                # Inisialisasi Peta
                 m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
 
                 if map_mode == "Satelit (Google)":
@@ -116,36 +165,27 @@ def main_app():
                         icon_anchor=(75, 5)
                     )).add_to(m)
 
-                # 3. Titik Stesen & POPUP KOORDINAT
+                # 3. Titik Stesen & Popup
                 for i, row in df.iterrows():
-                    # HTML Popup yang akan keluar bila ditekan
                     popup_html = f"""
-                    <div style="font-family: 'Arial', sans-serif; font-size: 12px; width: 180px; line-height: 1.5;">
-                        <strong style="color: #FF0000; font-size: 14px;">STN: {row['STN']}</strong><br>
-                        <hr style="margin: 5px 0;">
-                        <b>Cassini E:</b> {row['E']:.3f}<br>
-                        <b>Cassini N:</b> {row['N']:.3f}<br>
-                        <b>WGS84 Lat:</b> {row['lat']:.7f}<br>
-                        <b>WGS84 Lon:</b> {row['lon']:.7f}
+                    <div style="font-family: Arial; font-size: 12px; width: 180px;">
+                        <strong style="color:red;">STN: {row['STN']}</strong><br>
+                        <hr style="margin:5px 0;">
+                        <b>E (Cassini):</b> {row['E']:.3f}<br>
+                        <b>N (Cassini):</b> {row['N']:.3f}<br>
+                        <b>Lat (WGS84):</b> {row['lat']:.7f}<br>
+                        <b>Lon (WGS84):</b> {row['lon']:.7f}
                     </div>
                     """
-                    
-                    # Marker Titik (CircleMarker)
-                    # Tooltip ditambah supaya bila mouse 'hover' pun nampak nama stesen
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']], 
-                        radius=7, 
-                        color="red", 
-                        fill=True, 
-                        fill_opacity=0.9,
-                        tooltip=f"Klik untuk koordinat stesen {row['STN']}",
+                        radius=7, color="red", fill=True, fill_opacity=0.9,
                         popup=folium.Popup(popup_html, max_width=250)
                     ).add_to(m)
                     
-                    # Label Nama Stesen (Teks)
                     if show_stn:
                         folium.Marker(location=[row['lat'], row['lon']], icon=folium.DivIcon(
-                            html=f'<div style="font-size:{font_size_stn}pt; color:white; text-shadow:2px 2px #000; font-weight:bold; width:60px;">{row["STN"]}</div>'
+                            html=f'<div style="font-size:11pt; color:white; text-shadow:2px 2px #000; font-weight:bold; width:60px;">{row["STN"]}</div>'
                         )).add_to(m)
 
                 # 4. Bearing & Jarak
@@ -155,15 +195,12 @@ def main_app():
                         folium.Marker(location=[d['mid_lat'], d['mid_lon']], icon=folium.DivIcon(
                             icon_size=(150,40), icon_anchor=(75,20),
                             html=f'''<div style="transform: rotate({d["rotation"]}deg); text-align:center; pointer-events:none;">
-                                <div style="font-size:{font_size_dim}pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
-                                <div style="font-size:{font_size_dim-1}pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
+                                <div style="font-size:9pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
+                                <div style="font-size:8pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
                             </div>'''
                         )).add_to(m)
 
                 Fullscreen().add_to(m)
-                
-                # PAPARAN MENGGUNAKAN st_folium UNTUK INTERAKTIF PENUH
-                # Key ditukar ikut map_mode supaya peta refresh betul
                 st_folium(m, width=1000, height=600, key=f"peta_{map_mode}", returned_objects=[])
 
             with st.expander("Klik untuk lihat Jadual Data"):
