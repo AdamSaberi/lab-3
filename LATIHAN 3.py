@@ -118,7 +118,6 @@ def main_app():
     font_size_stn = st.sidebar.slider("Saiz Label Stesen", 8, 20, 11)
     font_size_dim = st.sidebar.slider("Saiz Bearing/Jarak", 6, 16, 9)
     
-    map_type = st.sidebar.selectbox("Jenis Peta", ["Satelit (Google)", "OpenStreetMap"])
     uploaded_file = st.sidebar.file_uploader("Pilih fail CSV (STN, E, N)", type='csv')
 
     if uploaded_file is not None:
@@ -136,23 +135,36 @@ def main_app():
 
             with m_col1:
                 center = [df['lat'].mean(), df['lon'].mean()]
-                m = folium.Map(location=center, zoom_start=19, max_zoom=22)
+                
+                # Inisialisasi Peta dengan base layer OpenStreetMap
+                m = folium.Map(location=center, zoom_start=19, max_zoom=22, control_scale=True)
+                
+                # Tambah Satelit (Google) sebagai TileLayer tambahan
+                google_satellite = folium.TileLayer(
+                    tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+                    attr='Google',
+                    name='Satelit (Google)',
+                    max_zoom=22,
+                    max_native_zoom=19,
+                    show=True  # Set kepada True jika ingin satelit sebagai default
+                ).add_to(m)
+
+                # Tambah OpenStreetMap (Default)
+                folium.TileLayer('openstreetmap', name='Peta Jalan (OSM)').add_to(m)
                 
                 Fullscreen().add_to(m)
                 MousePosition().add_to(m)
 
-                if map_type == "Satelit (Google)":
-                    folium.TileLayer(
-                        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-                        attr='Google', name='Google Satellite', max_zoom=22, max_native_zoom=19
-                    ).add_to(m)
+                # Kumpulan Feature (untuk membolehkan label di-on/off juga jika perlu)
+                fg_polygon = folium.FeatureGroup(name="Polygon & Luas").add_to(m)
+                fg_labels = folium.FeatureGroup(name="Label Stesen & Dimensi").add_to(m)
 
                 # 1. Melukis Polygon
                 poly_coords = [[row['lat'], row['lon']] for i, row in df.iterrows()]
                 folium.Polygon(
                     locations=poly_coords, color="yellow", weight=3, fill=True, fill_opacity=0.1,
                     popup=f"Luas: {poly_geom.area:.2f}m²"
-                ).add_to(m)
+                ).add_to(fg_polygon)
 
                 # 2. Label Luas di Tengah
                 if show_area_label:
@@ -164,14 +176,14 @@ def main_app():
                                     LUAS: {poly_geom.area:.2f} m²</div>''',
                             icon_anchor=(75, 5)
                         )
-                    ).add_to(m)
+                    ).add_to(fg_polygon)
 
                 # 3. Label Stesen
                 for i, row in df.iterrows():
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']], radius=3, color="red", fill=True,
                         popup=f"STN: {row['STN']}\nE: {row['E']}\nN: {row['N']}"
-                    ).add_to(m)
+                    ).add_to(fg_labels)
                     
                     if show_stn:
                         folium.Marker(
@@ -181,9 +193,9 @@ def main_app():
                                 html=f'''<div style="font-size:{font_size_stn}pt; color:white; text-shadow:2px 2px #000; 
                                         font-weight:bold; width:50px; margin-left:5px; margin-top:-10px;">{row["STN"]}</div>'''
                             )
-                        ).add_to(m)
+                        ).add_to(fg_labels)
 
-                # 4. Bearing di atas, Jarak di bawah
+                # 4. Bearing & Jarak
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
@@ -193,44 +205,19 @@ def main_app():
                                 icon_size=(150,40), 
                                 icon_anchor=(75,20),
                                 html=f'''
-                                <div style="
-                                    transform: rotate({d["rotation"]}deg); 
-                                    width: 150px; 
-                                    display: flex; 
-                                    flex-direction: column; 
-                                    align-items: center; 
-                                    justify-content: center;
-                                    pointer-events: none;">
-                                    
-                                    <span style="
-                                        font-size: {font_size_dim}pt; 
-                                        color: #00FFFF; 
-                                        font-weight: bold; 
-                                        text-shadow: 1px 1px 2px #000; 
-                                        background: rgba(0,0,0,0.5); 
-                                        padding: 0px 4px; 
-                                        border-radius: 3px; 
-                                        line-height: 1.2;
-                                        white-space: nowrap;">
+                                <div style="transform: rotate({d["rotation"]}deg); width: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                                    <span style="font-size: {font_size_dim}pt; color: #00FFFF; font-weight: bold; text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.5); padding: 0px 4px; border-radius: 3px; line-height: 1.2; white-space: nowrap;">
                                         {d["bearing_dms"]}
                                     </span>
-                                    
-                                    <span style="
-                                        font-size: {font_size_dim - 1}pt; 
-                                        color: #FFFFFF; 
-                                        font-weight: bold; 
-                                        text-shadow: 1px 1px 2px #000; 
-                                        background: rgba(0,0,0,0.5); 
-                                        padding: 0px 4px; 
-                                        border-radius: 3px; 
-                                        line-height: 1.2;
-                                        margin-top: 2px;
-                                        white-space: nowrap;">
+                                    <span style="font-size: {font_size_dim - 1}pt; color: #FFFFFF; font-weight: bold; text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.5); padding: 0px 4px; border-radius: 3px; line-height: 1.2; margin-top: 2px; white-space: nowrap;">
                                         {d["dist"]:.2f}m
                                     </span>
                                 </div>'''
                             )
-                        ).add_to(m)
+                        ).add_to(fg_labels)
+
+                # --- LAYER CONTROL (Butang On/Off Satelit) ---
+                folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
                 folium_static(m, width=1000, height=600)
 
