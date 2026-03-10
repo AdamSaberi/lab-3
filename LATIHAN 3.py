@@ -50,16 +50,6 @@ def login_page():
                 st.rerun()
             else:
                 st.error("Username atau Password salah!")
-    with tab2:
-        st.subheader("Set Semula Password")
-        user_reset = st.text_input("Username untuk reset")
-        new_pass = st.text_input("Password Baru", type="password")
-        if st.button("Simpan Password Baru"):
-            if user_reset in st.session_state['users_db']:
-                st.session_state['users_db'][user_reset] = new_pass
-                st.success(f"Password untuk {user_reset} telah dikemaskini!")
-            else:
-                st.error("Username tidak wujud!")
 
 # --- 3. APLIKASI UTAMA ---
 def main_app():
@@ -109,8 +99,8 @@ def main_app():
     
     st.sidebar.subheader("Kawalan Paparan")
     show_stn = st.sidebar.checkbox("Paparkan Label Stesen", value=True)
-    show_dim = st.sidebar.checkbox("Paparkan Bearing/Jarak (Susun Menegak)", value=True)
-    show_area_label = st.sidebar.checkbox("Paparkan Luas di Tengah", value=True)
+    show_dim = st.sidebar.checkbox("Paparkan Bearing/Jarak", value=True)
+    show_area_label = st.sidebar.checkbox("Paparkan Luas", value=True)
     
     st.sidebar.divider()
     
@@ -136,37 +126,41 @@ def main_app():
             with m_col1:
                 center = [df['lat'].mean(), df['lon'].mean()]
                 
-                # Inisialisasi Peta dengan base layer OpenStreetMap
-                m = folium.Map(location=center, zoom_start=19, max_zoom=22, control_scale=True)
+                # 1. Inisialisasi Peta (Tanpa base layer lalai)
+                m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
                 
-                # Tambah Satelit (Google) sebagai TileLayer tambahan
-                google_satellite = folium.TileLayer(
+                # 2. Tambah Lapisan Satelit sebagai BASE MAP (Radio Button 1)
+                folium.TileLayer(
                     tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
                     attr='Google',
-                    name='Satelit (Google)',
+                    name='Google Satellite',
                     max_zoom=22,
-                    max_native_zoom=19,
-                    show=True  # Set kepada True jika ingin satelit sebagai default
+                    overlay=False,
+                    control=True
                 ).add_to(m)
 
-                # Tambah OpenStreetMap (Default)
-                folium.TileLayer('openstreetmap', name='Peta Jalan (OSM)').add_to(m)
+                # 3. Tambah OpenStreetMap sebagai BASE MAP (Radio Button 2)
+                folium.TileLayer(
+                    'openstreetmap', 
+                    name='OpenStreetMap', 
+                    overlay=False, 
+                    control=True
+                ).add_to(m)
                 
                 Fullscreen().add_to(m)
                 MousePosition().add_to(m)
 
-                # Kumpulan Feature (untuk membolehkan label di-on/off juga jika perlu)
-                fg_polygon = folium.FeatureGroup(name="Polygon & Luas").add_to(m)
-                fg_labels = folium.FeatureGroup(name="Label Stesen & Dimensi").add_to(m)
+                # 4. Kumpulan Feature untuk Data (Overlay)
+                fg_data = folium.FeatureGroup(name="Data Polygon & Label").add_to(m)
 
-                # 1. Melukis Polygon
+                # Melukis Polygon
                 poly_coords = [[row['lat'], row['lon']] for i, row in df.iterrows()]
                 folium.Polygon(
                     locations=poly_coords, color="yellow", weight=3, fill=True, fill_opacity=0.1,
                     popup=f"Luas: {poly_geom.area:.2f}m²"
-                ).add_to(fg_polygon)
+                ).add_to(fg_data)
 
-                # 2. Label Luas di Tengah
+                # Label Luas
                 if show_area_label:
                     c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
                     folium.Marker(
@@ -176,47 +170,37 @@ def main_app():
                                     LUAS: {poly_geom.area:.2f} m²</div>''',
                             icon_anchor=(75, 5)
                         )
-                    ).add_to(fg_polygon)
+                    ).add_to(fg_data)
 
-                # 3. Label Stesen
+                # Label Stesen & Dimensi
                 for i, row in df.iterrows():
                     folium.CircleMarker(
-                        location=[row['lat'], row['lon']], radius=3, color="red", fill=True,
-                        popup=f"STN: {row['STN']}\nE: {row['E']}\nN: {row['N']}"
-                    ).add_to(fg_labels)
+                        location=[row['lat'], row['lon']], radius=3, color="red", fill=True
+                    ).add_to(fg_data)
                     
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
                             icon=folium.DivIcon(
-                                icon_size=(0,0), icon_anchor=(0,0),
-                                html=f'''<div style="font-size:{font_size_stn}pt; color:white; text-shadow:2px 2px #000; 
-                                        font-weight:bold; width:50px; margin-left:5px; margin-top:-10px;">{row["STN"]}</div>'''
+                                html=f'''<div style="font-size:{font_size_stn}pt; color:white; text-shadow:2px 2px #000; font-weight:bold; width:50px;">{row["STN"]}</div>'''
                             )
-                        ).add_to(fg_labels)
+                        ).add_to(fg_data)
 
-                # 4. Bearing & Jarak
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
                         folium.Marker(
                             location=[d['mid_lat'], d['mid_lon']],
                             icon=folium.DivIcon(
-                                icon_size=(150,40), 
-                                icon_anchor=(75,20),
-                                html=f'''
-                                <div style="transform: rotate({d["rotation"]}deg); width: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
-                                    <span style="font-size: {font_size_dim}pt; color: #00FFFF; font-weight: bold; text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.5); padding: 0px 4px; border-radius: 3px; line-height: 1.2; white-space: nowrap;">
-                                        {d["bearing_dms"]}
-                                    </span>
-                                    <span style="font-size: {font_size_dim - 1}pt; color: #FFFFFF; font-weight: bold; text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.5); padding: 0px 4px; border-radius: 3px; line-height: 1.2; margin-top: 2px; white-space: nowrap;">
-                                        {d["dist"]:.2f}m
-                                    </span>
+                                icon_size=(150,40), icon_anchor=(75,20),
+                                html=f'''<div style="transform: rotate({d["rotation"]}deg); text-align:center; pointer-events:none;">
+                                    <div style="font-size:{font_size_dim}pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px;">{d["bearing_dms"]}</div>
+                                    <div style="font-size:{font_size_dim-1}pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:0 4px; border-radius:3px;">{d["dist"]:.2f}m</div>
                                 </div>'''
                             )
-                        ).add_to(fg_labels)
+                        ).add_to(fg_data)
 
-                # --- LAYER CONTROL (Butang On/Off Satelit) ---
+                # --- LAYER CONTROL (Butang Suis di Penjuru Kanan Atas) ---
                 folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
                 folium_static(m, width=1000, height=600)
