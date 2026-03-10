@@ -1,5 +1,8 @@
-pandas
-plotly
-numpy
-
 streamlit
+pandas
+geopandas
+shapely
+folium
+streamlit-folium
+numpy
+pyproj
