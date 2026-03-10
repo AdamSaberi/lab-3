@@ -92,7 +92,7 @@ def main_app():
     col_h1, col_h2 = st.columns([8, 2])
     with col_h1:
         st.title(f"🗺️ Interactive Web GIS (DMS Format)")
-        st.write(f"User: **{st.session_state['current_user']}**")
+        st.write(f"User Aktif: **{st.session_state['current_user']}**")
     with col_h2:
         if st.button("Logout", use_container_width=True):
             st.session_state['logged_in'] = False
@@ -101,7 +101,7 @@ def main_app():
     # --- SIDEBAR KONFIGURASI ---
     st.sidebar.header("⚙️ Tetapan Peta")
     
-    # SUIS ON/OFF SATELIT (Radio Button)
+    # SUIS ON/OFF SATELIT
     map_mode = st.sidebar.radio(
         "Jenis Paparan Peta:", 
         ["Satelit (Google)", "Peta Jalan (OSM)"]
@@ -118,32 +118,31 @@ def main_app():
     font_size_stn = st.sidebar.slider("Saiz Label Stesen", 8, 20, 11)
     font_size_dim = st.sidebar.slider("Saiz Bearing/Jarak", 6, 16, 9)
     
-    uploaded_file = st.sidebar.file_uploader("Pilih fail CSV (STN, E, N)", type='csv')
+    uploaded_file = st.sidebar.file_uploader("Muat Naik fail CSV (STN, E, N)", type='csv')
 
     # --- PEMPROSESAN DATA & PETA ---
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         
         if all(col in df.columns for col in ['E', 'N']):
-            # Transformer Koordinat
+            # Transformer Koordinat (EPSG:4390 ke WGS84)
             transformer = Transformer.from_crs("EPSG:4390", "EPSG:4326", always_xy=True)
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
-            # Geometri Polygon
+            # Geometri Polygon & Info Lot
             poly_geom = Polygon(list(zip(df['E'], df['N'])))
             center = [df['lat'].mean(), df['lon'].mean()]
 
-            # Layout m_col1 (Peta) & m_col2 (Metrik)
             m_col1, m_col2 = st.columns([3, 1])
             
             with m_col2:
-                st.markdown("### 📊 Info Lot")
-                st.metric("Luas", f"{poly_geom.area:.2f} m²")
-                st.metric("Perimeter", f"{poly_geom.length:.2f} m")
+                st.markdown("### 📊 Ringkasan Lot")
+                st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
+                st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
 
             with m_col1:
-                # Inisialisasi Peta berdasarkan Pilihan Suis (map_mode)
+                # Inisialisasi Peta
                 if map_mode == "Satelit (Google)":
                     m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
                     folium.TileLayer(
@@ -155,7 +154,6 @@ def main_app():
                         overlay=False
                     ).add_to(m)
                 else:
-                    # Default OpenStreetMap
                     m = folium.Map(location=center, zoom_start=19, max_zoom=22)
 
                 Fullscreen().add_to(m)
@@ -165,7 +163,7 @@ def main_app():
                 poly_coords = [[row['lat'], row['lon']] for i, row in df.iterrows()]
                 folium.Polygon(
                     locations=poly_coords, color="yellow", weight=3, fill=True, fill_opacity=0.15,
-                    popup=f"Luas: {poly_geom.area:.2f}m²"
+                    popup=f"Luas: {poly_geom.area:.2f} m²"
                 ).add_to(m)
 
                 # 2. Label Luas di Tengah
@@ -180,13 +178,32 @@ def main_app():
                         )
                     ).add_to(m)
 
-                # 3. Label Stesen & Dimensi
+                # 3. Label Stesen & Titik Interaktif (Popup)
                 for i, row in df.iterrows():
-                    # Marker Titik Merah
+                    # HTML untuk Popup Info Stesen
+                    popup_content = f"""
+                    <div style="font-family: Arial; min-width: 150px;">
+                        <h4 style="margin: 0; color: #d9534f;">Stesen: {row['STN']}</h4>
+                        <hr style="margin: 5px 0;">
+                        <b>Cassini E:</b> {row['E']:.3f}<br>
+                        <b>Cassini N:</b> {row['N']:.3f}<br>
+                        <b>WGS84 Lat:</b> {row['lat']:.6f}<br>
+                        <b>WGS84 Lon:</b> {row['lon']:.6f}
+                    </div>
+                    """
+                    
+                    # Marker Titik (CircleMarker) - Klik untuk Popup
                     folium.CircleMarker(
-                        location=[row['lat'], row['lon']], radius=3, color="red", fill=True
+                        location=[row['lat'], row['lon']], 
+                        radius=6, 
+                        color="red", 
+                        fill=True,
+                        fill_color="red",
+                        fill_opacity=0.8,
+                        popup=folium.Popup(popup_content, max_width=300)
                     ).add_to(m)
                     
+                    # Label Nama Stesen (Teks putih)
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
@@ -195,6 +212,7 @@ def main_app():
                             )
                         ).add_to(m)
 
+                # 4. Bearing & Jarak (Dimensi)
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
@@ -204,22 +222,22 @@ def main_app():
                                 icon_size=(150,40), icon_anchor=(75,20),
                                 html=f'''
                                 <div style="transform: rotate({d["rotation"]}deg); text-align:center; pointer-events:none;">
-                                    <div style="font-size:{font_size_dim}pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 4px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div>
-                                    <div style="font-size:{font_size_dim-1}pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 4px; border-radius:3px;">{d["dist"]:.2f}m</div>
+                                    <div style="font-size:{font_size_dim}pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 2px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
+                                    <div style="font-size:{font_size_dim-1}pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:0 2px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
                                 </div>'''
                             )
                         ).add_to(m)
 
-                # Render Peta
+                # Render Peta Akhir
                 folium_static(m, width=1000, height=600)
 
-            # Jadual Data di bawah
-            with st.expander("Lihat Data Koordinat"):
+            # Jadual Data
+            with st.expander("Klik untuk lihat Jadual Data Koordinat"):
                 st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
         else:
-            st.error("Format fail CSV salah! Pastikan ada kolum 'STN', 'E', dan 'N'.")
+            st.error("Ralat: Pastikan fail CSV mempunyai kolum 'STN', 'E', dan 'N'.")
 
-# --- 5. EXECUTION ---
+# --- 5. JALANKAN APLIKASI ---
 if __name__ == "__main__":
     if not st.session_state['logged_in']:
         login_page()
