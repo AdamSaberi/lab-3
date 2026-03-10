@@ -21,7 +21,6 @@ def decimal_to_dms(deg):
     float_seconds = (float_minutes - m) * 60
     s = round(float_seconds)
     
-    # Menangani kes saat melimpah ke minit (cth: 60" -> 1')
     if s >= 60:
         m += 1
         s = 0
@@ -88,12 +87,9 @@ def main_app():
             de, dn = p2['E'] - p1['E'], p2['N'] - p1['N']
             dist = np.sqrt(de**2 + dn**2)
             
-            # Kira bearing perpuluhan
             bearing_decimal = (np.degrees(np.arctan2(de, dn)) + 360) % 360
-            # Tukar ke DMS
             bearing_dms = decimal_to_dms(bearing_decimal)
             
-            # Kira rotation untuk teks supaya selari dengan garisan
             angle_deg = np.degrees(np.arctan2(dn, de))
             rotation = -angle_deg
             if rotation > 90: rotation -= 180
@@ -113,7 +109,7 @@ def main_app():
     
     st.sidebar.subheader("Kawalan Paparan")
     show_stn = st.sidebar.checkbox("Paparkan Label Stesen", value=True)
-    show_dim = st.sidebar.checkbox("Paparkan Bearing/Jarak (DMS)", value=True)
+    show_dim = st.sidebar.checkbox("Paparkan Bearing/Jarak (Susun Menegak)", value=True)
     show_area_label = st.sidebar.checkbox("Paparkan Luas di Tengah", value=True)
     
     st.sidebar.divider()
@@ -154,15 +150,11 @@ def main_app():
                 # 1. Melukis Polygon
                 poly_coords = [[row['lat'], row['lon']] for i, row in df.iterrows()]
                 folium.Polygon(
-                    locations=poly_coords, 
-                    color="yellow", 
-                    weight=3, 
-                    fill=True, 
-                    fill_opacity=0.1,
+                    locations=poly_coords, color="yellow", weight=3, fill=True, fill_opacity=0.1,
                     popup=f"Luas: {poly_geom.area:.2f}m²"
                 ).add_to(m)
 
-                # 2. Label Luas di Tengah (Centroid)
+                # 2. Label Luas di Tengah
                 if show_area_label:
                     c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
                     folium.Marker(
@@ -174,7 +166,7 @@ def main_app():
                         )
                     ).add_to(m)
 
-                # 3. Label Stesen & Titik
+                # 3. Label Stesen
                 for i, row in df.iterrows():
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']], radius=3, color="red", fill=True,
@@ -191,19 +183,50 @@ def main_app():
                             )
                         ).add_to(m)
 
-                # 4. Bearing & Jarak (Format DMS)
+                # 4. Bearing di atas, Jarak di bawah
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
                         folium.Marker(
                             location=[d['mid_lat'], d['mid_lon']],
                             icon=folium.DivIcon(
-                                icon_size=(120,20), 
-                                icon_anchor=(60,10),
+                                icon_size=(150,40), 
+                                icon_anchor=(75,20),
                                 html=f'''
-                                <div style="transform: rotate({d["rotation"]}deg); width: 120px; height: 20px; display: flex; justify-content: center; align-items: center; pointer-events: none;">
-                                    <span style="font-size: {font_size_dim}pt; color: #00FFFF; font-weight: bold; text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.4); padding: 1px 4px; border-radius: 3px; white-space: nowrap;">
-                                        {d["bearing_dms"]} | {d["dist"]:.2f}m
+                                <div style="
+                                    transform: rotate({d["rotation"]}deg); 
+                                    width: 150px; 
+                                    display: flex; 
+                                    flex-direction: column; 
+                                    align-items: center; 
+                                    justify-content: center;
+                                    pointer-events: none;">
+                                    
+                                    <span style="
+                                        font-size: {font_size_dim}pt; 
+                                        color: #00FFFF; 
+                                        font-weight: bold; 
+                                        text-shadow: 1px 1px 2px #000; 
+                                        background: rgba(0,0,0,0.5); 
+                                        padding: 0px 4px; 
+                                        border-radius: 3px; 
+                                        line-height: 1.2;
+                                        white-space: nowrap;">
+                                        {d["bearing_dms"]}
+                                    </span>
+                                    
+                                    <span style="
+                                        font-size: {font_size_dim - 1}pt; 
+                                        color: #FFFFFF; 
+                                        font-weight: bold; 
+                                        text-shadow: 1px 1px 2px #000; 
+                                        background: rgba(0,0,0,0.5); 
+                                        padding: 0px 4px; 
+                                        border-radius: 3px; 
+                                        line-height: 1.2;
+                                        margin-top: 2px;
+                                        white-space: nowrap;">
+                                        {d["dist"]:.2f}m
                                     </span>
                                 </div>'''
                             )
