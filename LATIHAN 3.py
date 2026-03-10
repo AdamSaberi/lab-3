@@ -94,12 +94,12 @@ def main_app():
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
         if all(col in df.columns for col in ['E', 'N']):
-            # Transform Cassini ke WGS84
+            # Transform Cassini (EPSG:4390) ke WGS84 (EPSG:4326)
             transformer = Transformer.from_crs("EPSG:4390", "EPSG:4326", always_xy=True)
             lon, lat = transformer.transform(df['E'].values, df['N'].values)
             df['lat'], df['lon'] = lat, lon
             
-            # GeoJSON Export
+            # Export GeoJSON
             geojson_str = convert_to_geojson(df)
             st.sidebar.download_button("📥 Download GeoJSON", data=geojson_str, file_name="data.geojson", mime="application/json")
             
@@ -110,11 +110,11 @@ def main_app():
             with m_col2:
                 st.metric("Luas (m²)", f"{poly_geom.area:.2f}")
                 st.metric("Perimeter (m)", f"{poly_geom.length:.2f}")
-                st.success("✅ Fail dimuat naik.")
-                st.info("💡 **Gerakkan Mouse** ke titik merah untuk info koordinat.")
+                st.success("✅ Data Berjaya Diproses")
+                st.info("💡 **Tips:** Lalukan mouse atau klik pada titik merah untuk melihat koordinat.")
 
             with m_col1:
-                # Setup Map
+                # Inisialisasi Peta
                 m = folium.Map(location=center, zoom_start=19, max_zoom=22, tiles=None)
 
                 if map_mode == "Satelit (Google)":
@@ -125,78 +125,81 @@ def main_app():
                 else:
                     folium.TileLayer('openstreetmap', name='OpenStreetMap', overlay=False).add_to(m)
 
-                # 1. Lukis Polygon
+                # 1. Plot Polygon
                 folium.Polygon(
                     locations=[[row['lat'], row['lon']] for i, row in df.iterrows()],
                     color="yellow", weight=3, fill=True, fill_opacity=0.2
                 ).add_to(m)
 
-                # 2. Label Luas (Centroid)
+                # 2. Label Luas di Tengah
                 if show_area:
                     c_lon, c_lat = transformer.transform(poly_geom.centroid.x, poly_geom.centroid.y)
                     folium.Marker(location=[c_lat, c_lon], icon=folium.DivIcon(
-                        html=f'<div style="font-size:10pt; color:yellow; font-weight:bold; width:150px; text-shadow:2px 2px #000;">LUAS: {poly_geom.area:.2f} m²</div>',
+                        html=f'<div style="font-size:10pt; color:yellow; font-weight:bold; width:150px; text-shadow:2px 2px #000; text-align:center;">LUAS: {poly_geom.area:.2f} m²</div>',
                         icon_anchor=(75, 5)
                     )).add_to(m)
 
-                # 3. Dimensi (Bearing/Jarak)
+                # 3. Label Bearing & Jarak
                 if show_dim:
                     dims = calculate_bearing_dist(df)
                     for d in dims:
                         folium.Marker(location=[d['mid_lat'], d['mid_lon']], icon=folium.DivIcon(
                             icon_size=(150,40), icon_anchor=(75,20),
                             html=f'''<div style="transform: rotate({d["rotation"]}deg); text-align:center;">
-                                <div style="font-size:9pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:2px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
-                                <div style="font-size:8pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.5); padding:2px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
+                                <div style="font-size:9pt; color:#00FFFF; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:2px; border-radius:3px; display:inline-block;">{d["bearing_dms"]}</div><br>
+                                <div style="font-size:8pt; color:white; font-weight:bold; text-shadow:1px 1px 2px #000; background:rgba(0,0,0,0.4); padding:2px; border-radius:3px; display:inline-block;">{d["dist"]:.2f}m</div>
                             </div>'''
                         )).add_to(m)
 
-                # 4. Marker Stesen (HOVER & CLICK INFO)
+                # 4. TITIK STESEN (Focus Utama)
                 for i, row in df.iterrows():
-                    # Content untuk Info Box
-                    info_html = f"""
-                    <div style="font-family: Arial; font-size: 12px; padding: 5px; width: 180px; border: 1px solid red;">
-                        <b style="color:red; font-size:14px;">Stesen: {row['STN']}</b><br>
-                        <hr style="margin:5px 0;">
-                        <b>E (Cassini):</b> {row['E']:.3f}<br>
-                        <b>N (Cassini):</b> {row['N']:.3f}<br>
-                        <b>Lat (WGS84):</b> {row['lat']:.7f}<br>
-                        <b>Lon (WGS84):</b> {row['lon']:.7f}
+                    # HTML Rekabentuk Kotak Info
+                    info_box = f"""
+                    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; size: 12px; width: 200px;">
+                        <h4 style="margin:0; color:#e74c3c;">Stesen {row['STN']}</h4>
+                        <table style="width:100%; border-collapse: collapse; margin-top:5px;">
+                            <tr><td style="border-bottom:1px solid #eee;"><b>E (Cassini)</b></td><td style="border-bottom:1px solid #eee;">: {row['E']:.3f}</td></tr>
+                            <tr><td style="border-bottom:1px solid #eee;"><b>N (Cassini)</b></td><td style="border-bottom:1px solid #eee;">: {row['N']:.3f}</td></tr>
+                            <tr><td style="border-bottom:1px solid #eee;"><b>Lat</b></td><td style="border-bottom:1px solid #eee;">: {row['lat']:.7f}</td></tr>
+                            <tr><td><b>Lon</b></td><td>: {row['lon']:.7f}</td></tr>
+                        </table>
                     </div>
                     """
                     
-                    # Titik Merah Interaktif
+                    # Marker Bulatan
                     folium.CircleMarker(
                         location=[row['lat'], row['lon']],
-                        radius=9, # Besarkan sikit supaya senang hover
-                        color="red",
+                        radius=10,
+                        color="white",
+                        weight=2,
                         fill=True,
                         fill_color="red",
-                        fill_opacity=0.8,
-                        # HOVER INFO (Tooltip)
-                        tooltip=folium.Tooltip(info_html, sticky=True),
-                        # CLICK INFO (Popup)
-                        popup=folium.Popup(info_html, max_width=300)
+                        fill_opacity=0.9,
+                        tooltip=folium.Tooltip(info_box, sticky=True), # Tunjuk koordinat bila hover
+                        popup=folium.Popup(info_box, max_width=300)      # Tunjuk koordinat bila klik
                     ).add_to(m)
 
                     if show_stn:
                         folium.Marker(
                             location=[row['lat'], row['lon']],
                             icon=folium.DivIcon(
-                                html=f'<div style="font-size:11pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:14px; width:50px;">{row["STN"]}</div>'
+                                html=f'<div style="font-size:12pt; color:white; text-shadow:2px 2px #000; font-weight:bold; margin-left:15px; width:100px;">{row["STN"]}</div>'
                             )
                         ).add_to(m)
 
+                # Tambah Plugin Tambahan
                 Fullscreen().add_to(m)
-                MousePosition().add_to(m)
+                MousePosition(position='bottomleft', separator=' | ', prefix="WGS84: ").add_to(m)
                 
-                # Render Peta
-                st_folium(m, width=1000, height=600, key=f"peta_{map_mode}")
+                # Render Peta ke Streamlit
+                st_folium(m, width=1100, height=650, key="main_map")
 
-            with st.expander("Jadual Data Koordinat Lengkap"):
+            with st.expander("Lihat Jadual Data"):
                 st.dataframe(df[['STN', 'E', 'N', 'lat', 'lon']], use_container_width=True)
 
-# --- 5. RUN APP ---
+# --- 5. JALANKAN PROGRAM ---
 if __name__ == "__main__":
-    if not st.session_state['logged_in']: login_page()
-    else: main_app()
+    if not st.session_state['logged_in']:
+        login_page()
+    else:
+        main_app()
